@@ -31,10 +31,10 @@ Pipeline terdiri dari **10 bagian** yang berjalan berurutan di notebook `pipelin
 | 3 | Dataset Split (balancing 1:1 + train/val/test 80/10/10) | `splits/{train,val,test}.tsv` |
 | 4 | Training **AASIST** (raw waveform, SincConv) | `aasist/aasist_best.pt` + metrics |
 | 5 | Training **MoLEx** (LCNN + attention on LFCC) | `molex/molex_best.pt` + metrics |
-| 6 | Evaluasi Komparatif AASIST vs MoLEx | `comparison/*.png` |
+| 6 | Evaluasi Komparatif AASIST vs MoLEx | `comparison/{roc,cm,curves}.png` |
 | 7 | Real-World Inference Test (single file + batch folder) | `realworld_test/*.json` |
 | 8 | Ekstraksi Fitur untuk XGBoost (26 fitur) | `features/features_{split}.npz` |
-| 9 | Training & Evaluasi **XGBoost** | `xgboost/xgboost_final.{json,pkl}` + metrics |
+| 9 | Training & Evaluasi **XGBoost** + Perbandingan Ketiga Model | `xgboost/xgboost_final.{json,pkl}` + `comparison/all_models_comparison.png` |
 
 ---
 
@@ -44,6 +44,7 @@ Pipeline terdiri dari **10 bagian** yang berjalan berurutan di notebook `pipelin
 reformat_create_dataset/
 ├── pipeline_lengkap.ipynb        # Notebook utama (10 bagian)
 ├── shared/                        # Modul Python reusable
+│   ├── __init__.py
 │   ├── config.py                 # Single source of truth untuk konstanta
 │   ├── bootstrap.py              # Common imports + config + helper loaders
 │   ├── datasets.py               # AudioDataset, LFCCDataset
@@ -135,11 +136,14 @@ Semua konstanta terpusat di **`shared/config.py`**. Edit file ini untuk mengubah
 Grup konfigurasi utama:
 
 - **Path root**: `CV_CORPUS_ROOT`, `DATASET_ROOT`, `MODELS_ROOT`
-- **Spoof generators**: `EDGE_TTS_VOICES`, `USE_MMS_VITS`, `USE_GTTS`, `USE_KOKORO`, `EXTRA_SPOOF_DIRS`
+- **Bona fide sources**: `BONA_FIDE_SOURCES` — list of dicts (`cv_root`, `tsv_files`, `prefix`); dukung multi-corpus
+- **Spoof generators**: `EDGE_TTS_VOICES`, `EDGE_TTS_CONCURRENCY=5`, `USE_MMS_VITS`, `MMS_VITS_NSAMPLES`, `USE_GTTS`, `GTTS_NSAMPLES`, `GTTS_TLD_LIST`, `USE_KOKORO`, `KOKORO_NSAMPLES`, `KOKORO_VOICES`, `EXTRA_SPOOF_DIRS`
 - **Audio**: `SAMPLE_RATE=16000`, `MAX_SECONDS=4`
-- **LFCC (MoLEx)**: `N_LFCC=60`, `N_FILTER=70`, `N_FFT=512`
-- **XGBoost features**: `N_MFCC=20`, `SEGMENT_SEC=1` → 26 fitur total
-- **Training**: `NUM_EPOCHS=20`, `LR=1e-4`, `PATIENCE=5`
+- **LFCC (MoLEx)**: `N_LFCC=60`, `N_FILTER=70`, `N_FFT=512`, `WIN_LENGTH=320`, `HOP_LENGTH=160`
+- **XGBoost features**: `N_MFCC=20`, `SEGMENT_SEC=1`, `XGB_N_FFT=512`, `XGB_HOP_LENGTH=256` → 26 fitur total
+- **Training (deep learning)**: `BATCH_SIZE_AASIST=24`, `BATCH_SIZE_MOLEX=32`, `NUM_EPOCHS=20`, `LR=1e-4`, `WEIGHT_DECAY=1e-4`, `PATIENCE=5`, `NUM_WORKERS=0`
+- **Training (XGBoost)**: `XGB_ROUNDS_MIN=100`, `XGB_ROUNDS_MAX=500`, `XGB_ROUNDS_STEP=10`, `XGB_N_FOLDS=10`
+- **Inference**: `THRESH_LOW=0.3`, `THRESH_HIGH=0.7` (ambiguity zone untuk ensemble)
 - **Splits**: `RATIO_TRAIN=0.8`, `RATIO_VAL=0.1`, `RATIO_TEST=0.1`
 
 ---
@@ -225,9 +229,11 @@ models_voice/
 │   ├── test_results.json
 │   ├── feature_importance.png
 │   └── round_search.png
-└── comparison/
-    ├── all_models_comparison.png
-    └── comparison_summary.json
+├── comparison/
+│   ├── all_models_comparison.png  # Bagian 6 (AASIST vs MoLEx) + Bagian 9.7 (ketiga model)
+│   └── comparison_summary.json
+└── realworld_test/
+    └── *.json
 ```
 
 ---
@@ -251,3 +257,9 @@ models_voice/
 
 **HF token expired**
 → Update `.env` (`HF_TOKEN=...`) atau langsung di `shared/config.py`.
+
+**SIGSEGV / crash saat Bagian 9 (XGBoost)**
+→ Ini akibat konflik `libomp` antara XGBoost dan PyTorch di macOS. `shared/bootstrap.py` sudah menangani ini dengan mengimpor `xgboost` sebelum `torch` — pastikan tidak ada `import xgboost` manual di cell sebelum bootstrap.
+
+**Ingin menambah corpus bona fide baru**
+→ Tambahkan entry ke `BONA_FIDE_SOURCES` di `shared/config.py` (bukan di notebook). Setiap entry butuh `cv_root`, `tsv_files`, dan `prefix` (string unik untuk menghindari collision nama file).
