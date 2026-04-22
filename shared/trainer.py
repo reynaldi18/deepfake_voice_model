@@ -42,8 +42,8 @@ def run_epoch(model, loader, criterion, optimizer=None, device=None):
     model.train() if is_train else model.eval()
     total_loss, correct, total = 0.0, 0, 0
 
-    ctx = torch.enable_grad() if is_train else torch.no_grad()
-    with ctx:
+    def _run_loop():
+        nonlocal total_loss, correct, total
         for inputs, labels in loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
@@ -59,5 +59,12 @@ def run_epoch(model, loader, criterion, optimizer=None, device=None):
             total_loss += loss.item() * len(labels)
             correct    += (logits.argmax(1) == labels).sum().item()
             total      += len(labels)
+
+    if is_train:
+        with torch.enable_grad():
+            _run_loop()
+    else:
+        with torch.no_grad():
+            _run_loop()
 
     return total_loss / total, correct / total
