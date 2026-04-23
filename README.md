@@ -2,7 +2,7 @@
 
 Pipeline end-to-end untuk deteksi deepfake audio (bona fide vs. spoof) dalam Bahasa Indonesia. Dataset spoof dibangkitkan dari 4 TTS (Edge-TTS, MMS-VITS, gTTS, Kokoro-82M) + folder eksternal opsional. Tiga model dibandingkan: **AASIST**, **MoLEx**, dan **XGBoost**.
 
-Proyek untuk mata kuliah **PPT (Pemrosesan Pengolahan Teks) — ITB semester 2**.
+Proyek untuk mata kuliah **PPT (Proyek Penelitian Terapan) — ITB semester 2**.
 
 ---
 
@@ -43,6 +43,7 @@ Pipeline terdiri dari **10 bagian** yang berjalan berurutan di notebook `pipelin
 ```
 reformat_create_dataset/
 ├── pipeline_lengkap.ipynb        # Notebook utama (10 bagian)
+├── download_librivox_id.py       # Unduh corpus LibriVox Indonesia (opsional, bona fide tambahan)
 ├── shared/                        # Modul Python reusable
 │   ├── __init__.py
 │   ├── config.py                 # Single source of truth untuk konstanta
@@ -64,7 +65,10 @@ reformat_create_dataset/
 ```
 /Users/rey/ITB/semester_2/PPT/
 ├── dataset/                         # Corpus sumber (read-only)
-│   └── cv-corpus-24.0-2025-12-05/id/
+│   ├── cv-corpus-24.0-2025-12-05/id/
+│   └── librivox-id/                 # Output download_librivox_id.py (opsional)
+│       ├── clips/*.flac
+│       └── validated.tsv
 ├── dataset_voice/                   # Output pipeline (bona fide + spoof + splits + features)
 │   ├── bona_fide/*.flac
 │   ├── spoof/*.flac
@@ -127,6 +131,14 @@ Version yang dipakai (referensi):
 
 Download **Common Voice 24.0 (id)** dari [Mozilla Common Voice](https://commonvoice.mozilla.org/id/datasets) dan extract ke path yang dikonfigurasi di `shared/config.py` (`CV_CORPUS_ROOT`).
 
+**Opsional — LibriVox Indonesia** (corpus bona fide tambahan):
+
+```bash
+python download_librivox_id.py
+```
+
+Script ini mengunduh dataset `indonesian-nlp/librivox-indonesia` dari HuggingFace (streaming), memfilter hanya audio Bahasa Indonesia, dan menyimpan ke `dataset/librivox-id/`. Entry `BONA_FIDE_SOURCES` untuk LibriVox sudah tersedia di `shared/config.py` — pastikan script selesai sebelum menjalankan Bagian 1. Jika tidak ingin menggunakan LibriVox, comment-out entry tersebut di `BONA_FIDE_SOURCES`.
+
 ---
 
 ## Konfigurasi
@@ -136,7 +148,7 @@ Semua konstanta terpusat di **`shared/config.py`**. Edit file ini untuk mengubah
 Grup konfigurasi utama:
 
 - **Path root**: `CV_CORPUS_ROOT`, `DATASET_ROOT`, `MODELS_ROOT`
-- **Bona fide sources**: `BONA_FIDE_SOURCES` — list of dicts (`cv_root`, `tsv_files`, `prefix`); dukung multi-corpus
+- **Bona fide sources**: `BONA_FIDE_SOURCES` — list of dicts (`cv_root`, `tsv_files`, `prefix`); dukung multi-corpus. Sudah mencakup Common Voice 24.0 dan LibriVox Indonesia (aktif; jalankan `download_librivox_id.py` terlebih dahulu, atau comment-out entry LibriVox jika tidak dipakai)
 - **Spoof generators**: `EDGE_TTS_VOICES`, `EDGE_TTS_CONCURRENCY=5`, `USE_MMS_VITS`, `MMS_VITS_NSAMPLES`, `USE_GTTS`, `GTTS_NSAMPLES`, `GTTS_TLD_LIST`, `USE_KOKORO`, `KOKORO_NSAMPLES`, `KOKORO_VOICES`, `EXTRA_SPOOF_DIRS`
 - **Audio**: `SAMPLE_RATE=16000`, `MAX_SECONDS=4`
 - **LFCC (MoLEx)**: `N_LFCC=60`, `N_FILTER=70`, `N_FFT=512`, `WIN_LENGTH=320`, `HOP_LENGTH=160`
@@ -258,8 +270,8 @@ models_voice/
 **HF token expired**
 → Update `.env` (`HF_TOKEN=...`) atau langsung di `shared/config.py`.
 
-**SIGSEGV / crash saat Bagian 9 (XGBoost)**
-→ Ini akibat konflik `libomp` antara XGBoost dan PyTorch di macOS. `shared/bootstrap.py` sudah menangani ini dengan mengimpor `xgboost` sebelum `torch` — pastikan tidak ada `import xgboost` manual di cell sebelum bootstrap.
+**SIGSEGV / crash saat Bagian 9 (XGBoost) atau saat MMS-VITS (weight_norm)**
+→ Akibat konflik Intel OpenMP (`libomp`) antara XGBoost/PyTorch/VITS di macOS ARM. `shared/bootstrap.py` sudah menangani ini: meng-set `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `KMP_DUPLICATE_LIB_OK=TRUE`, `torch.set_num_threads(1)`, dan mengimpor `xgboost` sebelum `torch`. Pastikan tidak ada `import xgboost` manual di cell sebelum bootstrap.
 
 **Ingin menambah corpus bona fide baru**
 → Tambahkan entry ke `BONA_FIDE_SOURCES` di `shared/config.py` (bukan di notebook). Setiap entry butuh `cv_root`, `tsv_files`, dan `prefix` (string unik untuk menghindari collision nama file).
