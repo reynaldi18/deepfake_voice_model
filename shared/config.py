@@ -17,6 +17,12 @@ BONA_FIDE_SOURCES = [
         "tsv_files": ["validated.tsv", "train.tsv", "test.tsv"],
         "prefix"   : "",
     },
+    # LibriVox Indonesia — jalankan download_librivox_id.py dulu sebelum mengaktifkan ini
+    {
+        "cv_root"  : f"{CV_CORPUS_ROOT}/librivox-id",
+        "tsv_files": ["validated.tsv"],
+        "prefix"   : "",  # nama file sudah include "librivox_" dari download script
+    },
 ]
 
 # ── Output: bona fide ────────────────────────────────────────────────────

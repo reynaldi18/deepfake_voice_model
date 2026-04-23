@@ -16,7 +16,12 @@ import os
 import sys
 import csv
 
-# Must be set before torch is imported so MPS falls back to CPU for unsupported ops
+# Must be set before any numeric lib (numpy, torch) is imported
+# OMP_NUM_THREADS=1 prevents the Intel OpenMP SIGSEGV on macOS ARM with VITS/weight_norm
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import json
 import asyncio
@@ -63,6 +68,8 @@ try:
     from shared.trainer import get_device, set_seed, run_epoch  # noqa: F401
     from shared.metrics import compute_metrics, compute_eer  # noqa: F401
 
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
     DEVICE = get_device()
     set_seed(42)
     _TORCH_OK = True

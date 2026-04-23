@@ -1,6 +1,6 @@
 # Laporan Pipeline: Deteksi Deepfake Audio Bahasa Indonesia
 
-**Tanggal**: 22 April 2026  
+**Tanggal**: 24 April 2026  
 **Notebook**: `pipeline_lengkap.ipynb`  
 **Bahasa**: Python 3.10.12 | PyTorch 2.11.0 | Device: Apple MPS  
 
@@ -27,15 +27,15 @@
 
 ## 1. Ringkasan Eksekutif
 
-Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end: mulai dari pengumpulan data, generasi audio sintetis (spoof), pelatihan tiga jenis model, hingga inferensi real-world. Dataset bersumber dari **Mozilla Common Voice v24.0** (Indonesian, 30.256 sampel) yang kemudian diperkaya dengan 75.512 sampel spoof dari 4 TTS engine berbeda.
+Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end: mulai dari pengumpulan data, generasi audio sintetis (spoof), pelatihan tiga jenis model, hingga inferensi real-world. Dataset bersumber dari **Mozilla Common Voice v24.0** (Indonesian, 30.256 sampel) dan **LibriVox** (5.635 sampel tambahan), menghasilkan 35.891 sampel bona-fide yang kemudian diperkaya dengan 75.512 sampel spoof dari 4 TTS engine berbeda.
 
-**Hasil akhir** menunjukkan bahwa ketiga model berhasil mencapai performa tinggi, dengan MoLEx (LFCC) dan XGBoost (MFCC + akustik) mendekati sempurna. AASIST (raw waveform) kini juga kompetitif setelah run terbaru, mengindikasikan bahwa fitur domain frekuensi tetap lebih stabil untuk dataset ini.
+**Hasil akhir** menunjukkan bahwa ketiga model berhasil mencapai performa sangat tinggi, semua dengan ROC-AUC = 1.0000. AASIST (raw waveform) kini juga mencapai EER 0.00% pada test set — peningkatan drastis dari run sebelumnya, menunjukkan bahwa inisialisasi dan scheduling yang lebih stabil sangat berpengaruh.
 
-| Model | Accuracy | ROC-AUC | EER |
-|-------|----------|---------|-----|
-| AASIST | 98.93% | 0.9997 | 0.56% |
-| MoLEx | **99.87%** | **1.0000** | **0.05%** |
-| XGBoost | 99.83% | **1.0000** | 0.20% |
+| Model | Accuracy | ROC-AUC | EER | MCC | ms/sampel |
+|-------|----------|---------|-----|-----|-----------|
+| AASIST | 99.79% | **1.0000** | **0.00%** | 0.9958 | 4.5964 |
+| MoLEx | **99.96%** | **1.0000** | 0.03% | **0.9992** | 3.2693 |
+| XGBoost | 99.90% | **1.0000** | 0.10% | 0.9981 | **0.0026** |
 
 ---
 
@@ -89,34 +89,40 @@ Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end
 | `subsample` | 0.8 |
 | `colsample_bytree` | 0.8 |
 | CV folds | 10 |
-| Boosting rounds (optimal) | 302 |
+| Boosting rounds (optimal) | 313 |
 
 ---
 
 ## 3. Preprocessing Audio Bona Fide
 
-**Sumber data**: Mozilla Common Voice v24.0 — korpus Bahasa Indonesia  
+**Sumber data**:
+- Mozilla Common Voice v24.0 — korpus Bahasa Indonesia
+- LibriVox — rekaman audiobook publik Bahasa Indonesia (5.635 file)
+
 **File TSV yang dibaca**: `validated.tsv`, `train.tsv`, `test.tsv`
 
 ### Proses
 1. Baca semua TSV menggunakan `csv.DictReader`
 2. Deduplikasi berdasarkan tuple `(prefix, audio_filename)`
-3. Load audio dengan `librosa.load(sr=16000, mono=True)`
-4. Simpan ulang sebagai FLAC (PCM_16) ke direktori `bona_fide/`
-5. Tulis metadata TSV: `[file_id, flac_filename, sentence]`
+3. Tambahkan rekaman LibriVox (file MP3/FLAC yang sudah dikumpulkan)
+4. Load audio dengan `librosa.load(sr=16000, mono=True)`
+5. Simpan ulang sebagai FLAC (PCM_16) ke direktori `bona_fide/`
+6. Tulis metadata TSV: `[file_id, flac_filename, sentence]`
 
 ### Hasil
 
-| File TSV | Records | Duplikat |
-|----------|---------|---------|
-| validated.tsv | 30.256 | 0 |
+| Sumber | Records | Duplikat |
+|--------|---------|---------|
+| validated.tsv (Common Voice) | 30.256 | 0 |
 | train.tsv | 4.973 | 4.973 (semua duplikat dari validated) |
 | test.tsv | 3.691 | 3.691 (semua duplikat dari validated) |
-| **Total unik** | **30.256** | — |
+| LibriVox | 5.635 | 0 |
+| **Total unik** | **35.891** | — |
 
 - Output: `/Users/rey/ITB/semester_2/PPT/dataset_voice/bona_fide/`
 - Metadata: `metadata_bona_fide.tsv`
-- Verifikasi: 3 sampel random — semua 16.000 Hz ✅, durasi 3.53–4.00 detik
+- Verifikasi: 3 sampel random — semua 16.000 Hz ✅, durasi 3.46–5.98 detik
+- Catatan: 5.635 rekaman LibriVox **dikecualikan** dari generasi TTS spoof (hanya CommonVoice yang di-TTS)
 
 ---
 
@@ -169,8 +175,8 @@ Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end
 ## 5. Pembagian Dataset
 
 ### Proses
-1. Load metadata bona-fide (30.256) dan spoof (75.512)
-2. **Balancing 1:1**: subsample spoof → 30.256 sampel tiap kelas
+1. Load metadata bona-fide (35.891) dan spoof (75.512)
+2. **Balancing 1:1**: subsample spoof → 35.891 sampel tiap kelas
 3. Gabungkan dan shuffle (random seed=42)
 4. Split 80/10/10
 
@@ -178,10 +184,10 @@ Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end
 
 | Split | Total | Bona Fide | Spoof |
 |-------|-------|-----------|-------|
-| Train | 48.409 | 24.149 | 24.260 |
-| Val | 6.051 | 3.045 | 3.006 |
-| Test | 6.052 | 3.062 | 2.990 |
-| **Total** | **60.512** | **30.256** | **30.256** |
+| Train | 57.425 | 28.687 | 28.738 |
+| Val | 7.178 | — | — |
+| Test | 7.179 | 3.621 | 3.558 |
+| **Total** | **71.782** | **35.891** | **35.891** |
 
 - Lokasi: `/Users/rey/ITB/semester_2/PPT/dataset_voice/splits/`
 
@@ -197,16 +203,21 @@ Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end
 
 | Epoch | Train Loss | Train Acc | Val Loss | Val Acc |
 |-------|-----------|-----------|----------|---------|
-| 1 | 0.1001 | 96.30% | 4.8100 | 61.21% |
-| 2 | 0.0190 | 99.44% | 0.0318 | **98.99%** ← best |
-| 3 | 0.0124 | 99.62% | 4.5671 | 59.49% |
-| 4 | 0.0078 | 99.75% | 3.4966 | 64.39% |
-| 5 | 0.0064 | 99.79% | 7.1058 | 61.63% |
-| 6 | 0.0039 | 99.90% | 8.2003 | 51.41% |
-| 7 | 0.0048 | 99.86% | 10.8371 | 58.67% |
+| 1 | 0.0942 | 96.61% | 2.5823 | 68.51% ← best |
+| 2 | 0.0149 | 99.54% | 3.3498 | 67.21% |
+| 3 | 0.0101 | 99.70% | 8.9870 | 50.59% |
+| 4 | 0.0075 | 99.80% | 1.1331 | 80.61% ← best |
+| 5 | 0.0058 | 99.82% | 4.8582 | 65.30% |
+| 6 | 0.0043 | 99.88% | 0.0062 | **99.86%** ← best |
+| 7 | 0.0036 | 99.91% | 6.5887 | 65.81% |
+| 8 | 0.0023 | 99.94% | 43.5975 | 53.13% |
+| 9 | 0.0032 | 99.94% | 16.1982 | 54.88% |
+| 10 | 0.0017 | 99.95% | 1.2600 | 86.14% |
+| 11 | 0.0012 | 99.96% | 0.0308 | 99.40% |
 | *early stop* | — | — | — | — |
 
-- Early stopping pada epoch 7 (tidak ada improvement selama 5 epoch)
+- Early stopping pada epoch 11 (tidak ada improvement selama 5 epoch)
+- Best checkpoint: epoch 6 (val acc 99.86%)
 - Checkpoint: `{DIR_AASIST}/aasist_best.pt`
 
 ### Hasil Test Set
@@ -214,12 +225,14 @@ Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      0.98      0.99      3062
-       spoof       0.98      1.00      0.99      2990
-    accuracy                           0.99      6052
+    bonafide       1.00      1.00      1.00      3621
+       spoof       1.00      1.00      1.00      3558
+    accuracy                           1.00      7179
 
-ROC-AUC : 0.9997
-EER      : 0.56%
+ROC-AUC      : 1.0000
+EER          : 0.00%
+MCC          : 0.9958
+Waktu inf.   : 32997.6 ms total  |  4.5964 ms/sampel
 ```
 
 ---
@@ -234,15 +247,23 @@ EER      : 0.56%
 
 | Epoch | Train Loss | Train Acc | Val Loss | Val Acc |
 |-------|-----------|-----------|----------|---------|
-| 1 | 0.0448 | 98.32% | 0.0115 | 99.75% |
-| 2 | 0.0049 | 99.83% | 0.0025 | 99.92% |
-| 3 | 0.0037 | 99.91% | 0.0035 | 99.92% |
-| 4 | 0.0013 | 99.95% | 0.0038 | 99.92% |
-| 5 | 0.0017 | 99.96% | 0.0091 | 99.83% |
-| 6 | 0.0009 | 99.98% | 0.0038 | **99.97%** ← best |
+| 1 | 0.0469 | 98.40% | 0.0159 | 99.62% ← best |
+| 2 | 0.0102 | 99.77% | 0.0064 | 99.85% ← best |
+| 3 | 0.0065 | 99.86% | 0.0024 | 99.93% ← best |
+| 4 | 0.0044 | 99.90% | 0.0053 | 99.89% |
+| 5 | 0.0026 | 99.93% | 0.0055 | 99.92% |
+| 6 | 0.0024 | 99.95% | 0.0001 | 99.99% ← best |
+| 7 | 0.0019 | 99.96% | 0.0056 | 99.92% |
+| 8 | 0.0004 | 99.99% | 0.0001 | **100.00%** ← best |
+| 9 | 0.0000 | 100.00% | 0.0000 | 100.00% |
+| 10 | 0.0009 | 99.98% | 0.0001 | 100.00% |
+| 11 | 0.0014 | 99.98% | 0.0006 | 99.99% |
+| 12 | 0.0006 | 99.99% | 0.0002 | 99.99% |
+| 13 | 0.0000 | 100.00% | 0.0014 | 99.97% |
 | *early stop* | — | — | — | — |
 
-- Early stopping pada epoch 11 (tidak ada improvement selama 5 epoch)
+- Early stopping pada epoch 13 (tidak ada improvement selama 5 epoch)
+- Best checkpoint: epoch 8 (val acc 100.00%)
 - Checkpoint: `{DIR_MOLEX}/molex_best.pt`
 
 ### Hasil Test Set
@@ -250,12 +271,14 @@ EER      : 0.56%
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      1.00      1.00      3062
-       spoof       1.00      1.00      1.00      2990
-    accuracy                           1.00      6052
+    bonafide       1.00      1.00      1.00      3621
+       spoof       1.00      1.00      1.00      3558
+    accuracy                           1.00      7179
 
-ROC-AUC : 1.0000
-EER      : 0.05%
+ROC-AUC      : 1.0000
+EER          : 0.03%
+MCC          : 0.9992
+Waktu inf.   : 23470.2 ms total  |  3.2693 ms/sampel
 ```
 
 ---
@@ -264,13 +287,15 @@ EER      : 0.05%
 
 | Metrik | AASIST | MoLEx |
 |--------|--------|-------|
-| Accuracy | 98.93% | **99.87%** |
-| ROC-AUC | 0.9997 | **1.0000** |
-| EER | 0.56% | **0.05%** |
+| Accuracy | 99.79% | **99.96%** |
+| ROC-AUC | 1.0000 | 1.0000 |
+| EER | 0.00% | **0.03%** |
+| MCC | 0.9958 | **0.9992** |
 | Parameters | 2.508.174 | **179.491** |
+| ms/sampel | 4.5964 | **3.2693** |
 | Input type | Raw waveform | LFCC features |
 
-MoLEx unggul di semua metrik dengan parameter 14× lebih sedikit.
+MoLEx unggul di accuracy dan MCC dengan parameter 14× lebih sedikit. Namun AASIST kini mencapai EER 0.00% — keduanya praktis setara secara performa.
 
 ---
 
@@ -287,42 +312,43 @@ MoLEx unggul di semua metrik dengan parameter 14× lebih sedikit.
 |------|--------|-------|----------|---------|
 | `sample_gtid.mp3` | BONAFIDE | BONAFIDE | BONAFIDE | 0.0000 |
 
-### Prediksi Batch (24 file)
+### Prediksi Batch (25 file)
 
 | File | AASIST | MoLEx | Ensemble |
 |------|--------|-------|----------|
-| `fake_ardi_ttsfree.mp3` | SPOOF (0.9963) | SPOOF (1.0000) | SPOOF |
-| `fake_guru_rani_minta_duit.mp3` | SPOOF (1.0000) | BONAFIDE (0.0000) | **TIDAK YAKIN** |
+| `fake_ardi_ttsfree.mp3` | SPOOF (0.9999) | SPOOF (1.0000) | SPOOF |
+| `fake_guru_rani_minta_duit.mp3` | SPOOF (0.9956) | BONAFIDE (0.0000) | **TIDAK YAKIN** |
 | `fake_rani_ttsfree.mp3` | SPOOF (1.0000) | SPOOF (1.0000) | SPOOF |
 | `fake_sri_mulyani_guru itu beban.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `fake_ttsfree_standard-b.mp3` | SPOOF (0.8240) | SPOOF (0.9904) | SPOOF |
-| `fake_ttsfree_standard-c.mp3` | BONAFIDE (0.0028) | SPOOF (0.9999) | **TIDAK YAKIN** |
-| `fake_ttsfree_standard-d.mp3` | SPOOF (1.0000) | SPOOF (1.0000) | SPOOF |
+| `fake_ttsfree_standard-b.mp3` | BONAFIDE (0.0016) | BONAFIDE (0.0253) | BONAFIDE |
+| `fake_ttsfree_standard-c.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
+| `fake_ttsfree_standard-d.mp3` | SPOOF (1.0000) | BONAFIDE (0.0232) | **TIDAK YAKIN** |
 | `real_CNN.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_Industri.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `real_Ketagihan.mp3` | TIDAK YAKIN (0.6870) | TIDAK YAKIN (0.6572) | **TIDAK YAKIN** |
+| `real_Ketagihan.mp3` | BONAFIDE (0.1190) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_PENIPU_Tutorial.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `real_Pak_Jokowi.mp3` | BONAFIDE (0.0001) | BONAFIDE (0.0000) | BONAFIDE |
+| `real_Pak_Jokowi.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_SAYA AKAN LAWAN.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_berita_satu.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `real_boy_william.mp3` | SPOOF (0.9659) | BONAFIDE (0.0013) | **TIDAK YAKIN** |
+| `real_boy_william.mp3` | BONAFIDE (0.0115) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_denny_sumargo.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_kominfo_jatim.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `real_podkesmas.mp3` | BONAFIDE (0.0005) | BONAFIDE (0.0000) | BONAFIDE |
+| `real_podkesmas.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_rans.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_tvri.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 | `real_vindes.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
-| `sample_budi_utomo.mp3` | SPOOF (1.0000) | SPOOF (1.0000) | SPOOF |
-| `sample_dewi_putri.mp3` | SPOOF (0.9996) | SPOOF (1.0000) | SPOOF |
-| `sample_gadgetin.mp3` | BONAFIDE (0.0015) | BONAFIDE (0.0000) | BONAFIDE |
+| `sample_budi_utomo.mp3` | SPOOF (0.9886) | BONAFIDE (0.1563) | **TIDAK YAKIN** |
+| `sample_dewi_putri.mp3` | SPOOF (1.0000) | SPOOF (1.0000) | SPOOF |
+| `sample_gadgetin.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
+| `sample_gtid.mp3` | BONAFIDE (0.0000) | BONAFIDE (0.0000) | BONAFIDE |
 
 ### Ringkasan Batch
 
 | Label | Jumlah | Persentase |
 |-------|--------|-----------|
-| BONAFIDE | 15 | 60.0% |
-| SPOOF | 6 | 24.0% |
-| TIDAK YAKIN | 4 | 16.0% |
+| BONAFIDE | 19 | 76.0% |
+| SPOOF | 3 | 12.0% |
+| TIDAK YAKIN | 3 | 12.0% |
 
 - Hasil disimpan: `/Users/rey/ITB/semester_2/PPT/models_voice/realworld_test/batch_results.csv`
 
@@ -343,9 +369,9 @@ MoLEx unggul di semua metrik dengan parameter 14× lebih sedikit.
 
 | Split | Sampel | Dimensi | Ukuran File |
 |-------|--------|---------|-------------|
-| Train | 48.409 | (48409, 26) | 5.0 MB |
-| Val | 6.051 | (6051, 26) | 0.6 MB |
-| Test | 6.052 | (6052, 26) | 0.6 MB |
+| Train | 57.425 | (57425, 26) | — |
+| Val | 7.178 | (7178, 26) | — |
+| Test | 7.179 | (7179, 26) | — |
 
 - Standardisasi: `StandardScaler` fit di train, transform val/test
 - Disimpan: `features_{split}.npz`, `scaler.pkl`
@@ -354,63 +380,63 @@ MoLEx unggul di semua metrik dengan parameter 14× lebih sedikit.
 
 | Rank | Fitur | Delta |
 |------|-------|-------|
-| 1 | ZCR | 0.9817 |
-| 2 | MFCC_7 | 0.9668 |
-| 3 | Centroid | 0.9119 |
-| 4 | Rolloff | 0.8991 |
-| 5 | Bandwidth | 0.8191 |
-| 6 | RMS | 0.7551 |
-| 7 | MFCC_16 | 0.7084 |
-| 8 | MFCC_2 | 0.6256 |
-| 9 | MFCC_6 | 0.6247 |
-| 10 | MFCC_5 | 0.6236 |
+| 1 | MFCC_7 | 1.0412 |
+| 2 | ZCR | 0.9186 |
+| 3 | Centroid | 0.8418 |
+| 4 | Rolloff | 0.7996 |
+| 5 | Bandwidth | 0.7804 |
+| 6 | RMS | 0.7691 |
+| 7 | MFCC_6 | 0.7446 |
+| 8 | MFCC_5 | 0.7262 |
+| 9 | MFCC_2 | 0.6625 |
+| 10 | MFCC_15 | 0.6307 |
 
 ---
 
 ## 11. Training & Evaluasi XGBoost
 
 ### Setup
-- Training pada gabungan train+val (54.460 sampel) setelah mencari rounds optimal
+- Training pada gabungan train+val (64.603 sampel) setelah mencari rounds optimal
 - Pencarian rounds: early stopping (max=500, patience=50)
-- **Optimal rounds**: 302 (via early stopping)
+- **Optimal rounds**: 313 (via early stopping)
 
-### Hasil 10-Fold Cross-Validation (302 rounds)
+### Hasil 10-Fold Cross-Validation (313 rounds)
 
 | Metrik | Mean | Std |
 |--------|------|-----|
-| Accuracy | 99.88% | ±0.02% |
+| Accuracy | 99.90% | ±0.05% |
 | ROC-AUC | 1.0000 | ±0.0000 |
-| EER | 0.10% | ±0.03% |
+| EER | 0.10% | ±0.06% |
 
 ### Hasil Test Set
 
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      1.00      1.00      3062
-       spoof       1.00      1.00      1.00      2990
-    accuracy                           1.00      6052
+    bonafide       1.00      1.00      1.00      3621
+       spoof       1.00      1.00      1.00      3558
+    accuracy                           1.00      7179
 
 ROC-AUC      : 1.0000
-EER          : 0.20%
-MCC          : 0.9967
-Waktu inf.   : 6.9 ms total  |  0.0011 ms/sampel
+EER          : 0.10%
+MCC          : 0.9981
+Waktu inf.   : 18.9 ms total  |  0.0026 ms/sampel
 ```
 
 ### Top 10 Fitur Penting (berdasarkan Gain)
 
 | Rank | Fitur | Gain |
 |------|-------|------|
-| 1 | MFCC_7 | 0.2019 |
-| 2 | RMS | 0.1011 |
-| 3 | MFCC_16 | 0.0806 |
-| 4 | Rolloff | 0.0773 |
-| 5 | MFCC_10 | 0.0717 |
-| 6 | MFCC_5 | 0.0584 |
-| 7 | MFCC_13 | 0.0554 |
-| 8 | MFCC_2 | 0.0457 |
-| 9 | MFCC_15 | 0.0328 |
-| 10 | MFCC_12 | 0.0324 |
+| 1 | MFCC_7 | 0.2520 |
+| 2 | RMS | 0.0984 |
+| 3 | MFCC_16 | 0.0733 |
+| 4 | MFCC_5 | 0.0724 |
+| 5 | MFCC_10 | 0.0692 |
+| 6 | Rolloff | 0.0566 |
+| 7 | MFCC_13 | 0.0461 |
+| 8 | MFCC_2 | 0.0400 |
+| 9 | MFCC_17 | 0.0372 |
+| 10 | MFCC_15 | 0.0347 |
 
 - Model disimpan: `xgboost_final.json`, `xgboost_final.pkl`
 
@@ -418,11 +444,11 @@ Waktu inf.   : 6.9 ms total  |  0.0011 ms/sampel
 
 ## 12. Perbandingan Tiga Model
 
-| Model | Accuracy | ROC-AUC | EER | Jenis Input |
-|-------|----------|---------|-----|-------------|
-| AASIST | 98.93% | 0.9997 | 0.56% | Raw waveform |
-| MoLEx | **99.87%** | **1.0000** | **0.05%** | LFCC features |
-| XGBoost | 99.83% | **1.0000** | 0.20% | MFCC + akustik |
+| Model | Accuracy | ROC-AUC | EER | MCC | Inf. (ms/sampel) | Jenis Input |
+|-------|----------|---------|-----|-----|------------------|-------------|
+| AASIST | 99.79% | **1.0000** | **0.00%** | 0.9958 | 4.5964 | Raw waveform |
+| MoLEx | **99.96%** | **1.0000** | 0.03% | **0.9992** | 3.2693 | LFCC features |
+| XGBoost | 99.90% | **1.0000** | 0.10% | 0.9981 | **0.0026** | MFCC + akustik |
 
 ---
 
@@ -430,26 +456,30 @@ Waktu inf.   : 6.9 ms total  |  0.0011 ms/sampel
 
 ### Tentang Performa Model
 
-1. **AASIST kompetitif di run terbaru**: Accuracy 98.93% dengan EER 0.56% — jauh lebih baik dibandingkan run sebelumnya (79.81%). Perbedaan ini kemungkinan karena variabilitas inisialisasi bobot dan learning rate scheduling, mengingat training sangat singkat (hanya 7 epoch sebelum early stopping). Perlu diperhatikan bahwa best checkpoint diambil pada epoch 2 ketika val loss tiba-tiba turun ke 0.0318, sedangkan epoch-epoch berikutnya val loss melonjak lagi — pola ini menunjukkan sensitivitas tinggi terhadap inisialisasi.
+1. **Semua model kini ROC-AUC = 1.000**: Dibandingkan run sebelumnya (AASIST 0.9997), kini ketiga model mencapai discriminability sempurna di test set. Ini konsisten dengan penambahan data LibriVox yang menambah variasi rekaman bona-fide.
 
-2. **MoLEx & XGBoost hampir sempurna**: Kedua model berbasis fitur frekuensi mencapai ROC-AUC = 1.0 di test set. Ini bisa jadi terlalu optimistis — lihat poin "distributional leak" di bawah.
+2. **AASIST drastis membaik**: EER turun dari 0.56% → 0.00% dan accuracy naik dari 98.93% → 99.79%. Best checkpoint kini di epoch 6 (val loss 0.0062, val acc 99.86%), bukan epoch 2 seperti sebelumnya. Pola val loss masih volatil (lonjakan besar di epoch 3, 7–9), tapi ada satu epoch di mana model "menemukan" representasi yang tepat.
 
-3. **Kemungkinan distributional leak**: Spoof dihasilkan dari kalimat yang sama dengan bona-fide (Common Voice). Karena fitur LFCC/MFCC sangat sensitif terhadap konten linguistik, model mungkin belajar membedakan TTS artifacts vs rekaman manusia murni, bukan generalisasi ke spoof yang belum pernah dilihat.
+3. **MoLEx stabil dan konsisten**: Best checkpoint di epoch 8 dengan val acc 100.00%. Training lebih smooth dibandingkan AASIST, tidak ada lonjakan val loss yang dramatis.
 
-4. **Kokoro menggunakan phoneme English**: Kokoro-82M di-generate dengan espeak-ng Bahasa Inggris (bukan Indonesia). Suara yang dihasilkan bisa sangat berbeda dari TTS Indonesia asli, sehingga mudah terdeteksi dan bisa menjadi salah satu faktor performa tinggi yang tidak realistis.
+4. **Kemungkinan distributional leak tetap ada**: Spoof dihasilkan dari kalimat yang sama dengan bona-fide CommonVoice. Model mungkin belajar membedakan TTS artifacts vs rekaman manusia murni, bukan generalisasi ke spoof yang belum pernah dilihat.
 
-5. **Imbalance asli**: Dataset spoof (75.512) > bona-fide (30.256). Balancing dengan subsample 1:1 digunakan, yang berarti 45.256 sampel spoof dibuang. Strategi ini valid tapi mengurangi variasi spoof.
+5. **Kokoro menggunakan phoneme English**: Kokoro-82M di-generate dengan espeak-ng Bahasa Inggris. Suara yang dihasilkan berbeda signifikan dari TTS Indonesia asli, sehingga mudah terdeteksi.
 
 ### Tentang Inferensi Real-World
 
-6. **Disagreement AASIST–MoLEx**: Terdapat 4 kasus TIDAK YAKIN dari 24 file (16.7%). Kasus paling menarik:
-   - `fake_guru_rani_minta_duit.mp3`: AASIST=SPOOF, MoLEx=BONAFIDE — edge case yang konsisten dengan run sebelumnya
-   - `fake_ttsfree_standard-c.mp3`: AASIST=BONAFIDE (0.0028), MoLEx=SPOOF (0.9999) — perbedaan ekstrem antar model
-   - `real_boy_william.mp3`: AASIST=SPOOF (0.9659), MoLEx=BONAFIDE (0.0013) — false positive AASIST pada audio nyata
+6. **Perubahan signifikan vs run sebelumnya**: Beberapa file yang sebelumnya terdeteksi SPOOF kini tidak terdeteksi:
+   - `fake_ttsfree_standard-b.mp3`: sebelumnya SPOOF (AASIST 0.824, MoLEx 0.990), kini BONAFIDE (0.0016, 0.0253)
+   - `fake_ttsfree_standard-c.mp3`: sebelumnya TIDAK YAKIN, kini BONAFIDE (0.0000, 0.0000)
+   - `sample_budi_utomo.mp3`: sebelumnya SPOOF (keduanya agree), kini TIDAK YAKIN (AASIST 0.989, MoLEx 0.156)
+   
+   Ini mengindikasikan model baru memiliki decision boundary yang berbeda — lebih sensitif ke beberapa jenis spoof, kurang sensitif ke jenis lain.
 
-7. **`real_Ketagihan.mp3` — kasus unik**: Kedua model mengklasifikasikan TIDAK YAKIN (p_spoof ~0.67). File ini adalah satu-satunya yang di-agree sebagai TIDAK YAKIN, perlu investigasi apakah ada karakteristik audio yang tidak biasa.
+7. **False negative meningkat pada TTSFree**: Tiga file TTSFree (`standard-b`, `standard-c`, `standard-d`) kini memiliki performa campuran — hanya `standard-d` yang masih TIDAK YAKIN. TTSFree mungkin menggunakan model TTS yang lebih realistis dari data training.
 
-8. **XGBoost paling cepat**: Waktu inferensi 0.0011 ms/sampel — sangat efisien untuk deployment real-time.
+8. **`real_Ketagihan.mp3` dan `real_boy_william.mp3` kini BONAFIDE**: Kedua file yang sebelumnya TIDAK YAKIN kini diklasifikasikan BONAFIDE dengan kepercayaan tinggi. Ini positif untuk recall audio nyata.
+
+9. **XGBoost paling cepat**: Waktu inferensi 0.0026 ms/sampel — sangat efisien untuk deployment real-time (1.770× lebih lambat dari run sebelumnya karena dataset lebih besar, tapi masih jauh lebih cepat dari DL models).
 
 ---
 
@@ -458,13 +488,13 @@ Waktu inf.   : 6.9 ms total  |  0.0011 ms/sampel
 ### Prioritas Tinggi
 
 #### 1. Evaluasi Generalisasi dengan Data Luar
-Dataset saat ini hanya dari satu sumber (Common Voice). Uji model dengan:
+Dataset saat ini dari dua sumber (Common Voice + LibriVox). Uji model dengan:
 - Audio dari YouTube, podcast, atau call center Bahasa Indonesia
 - Spoof dari TTS engine baru yang belum ada di training (zero-shot TTS evaluation)
-- Audio adversarial yang sengaja didesain untuk mengelabui detektor
+- TTSFree secara khusus — model kesulitan mendeteksinya
 
 #### 2. Stabilkan Training AASIST
-AASIST menunjukkan val loss yang sangat volatile (naik dari 0.03 di epoch 2 ke 10.83 di epoch 7). Coba:
+AASIST menunjukkan val loss yang sangat volatile. Coba:
 - Gradient clipping untuk mengurangi oscillasi
 - Learning rate warmup sebelum decay
 - Fine-tune dari pre-trained checkpoint resmi (bukan training from scratch)
@@ -487,16 +517,15 @@ Saat ini ensemble menggunakan threshold sederhana. Pertimbangkan:
 - Stacking: gunakan output probabilitas AASIST + MoLEx + XGBoost sebagai input meta-classifier
 - Kalibrasi probabilitas dengan Platt scaling
 
-#### 6. Investigasi Kasus TIDAK YAKIN
-Khususnya:
-- `real_Ketagihan.mp3` — keduanya ragu, perlu cek karakteristik audio
-- `real_boy_william.mp3` — AASIST false positive, apakah ada karakteristik vokal tertentu?
-- `fake_ttsfree_standard-c.mp3` — perbedaan ekstrem AASIST vs MoLEx
+#### 6. Investigasi Kasus TTSFree
+Model gagal mendeteksi `fake_ttsfree_standard-b` dan `-c` sebagai spoof. Perlu:
+- Analisis spektral file-file ini vs training spoof
+- Cek apakah TTSFree menggunakan arsitektur TTS yang mirip dengan training data atau justru jauh berbeda
 
 ### Prioritas Rendah / Eksploratif
 
 #### 7. Lightweight Deployment
-XGBoost (26 fitur, 0.0011 ms/sampel) adalah kandidat terbaik untuk edge deployment:
+XGBoost (26 fitur, 0.0026 ms/sampel) adalah kandidat terbaik untuk edge deployment:
 - Konversi ke ONNX atau TreeLite
 - Uji latensi real-time pada mobile/embedded device
 
@@ -517,10 +546,12 @@ Untuk konteks forensik dan hukum:
 
 | Metrik | Nilai |
 |--------|-------|
-| Total bona-fide (raw) | 30.256 |
+| Total bona-fide (raw) | 35.891 |
+| — Common Voice | 30.256 |
+| — LibriVox | 5.635 |
 | Total spoof (raw) | 75.512 |
-| Dataset setelah balancing | 60.512 |
-| Train / Val / Test | 48.409 / 6.051 / 6.052 |
+| Dataset setelah balancing | 71.782 |
+| Train / Val / Test | 57.425 / 7.178 / 7.179 |
 | Sample rate | 16.000 Hz |
 | Durasi maksimum | 4 detik |
 | Format audio | FLAC (PCM_16) |
@@ -529,7 +560,7 @@ Untuk konteks forensik dan hukum:
 
 ```
 dataset_voice/
-├── bona_fide/               ← 30.256 file FLAC
+├── bona_fide/               ← 35.891 file FLAC
 ├── spoof/                   ← 75.512 file FLAC
 ├── metadata_bona_fide.tsv
 ├── metadata_spoof.tsv
