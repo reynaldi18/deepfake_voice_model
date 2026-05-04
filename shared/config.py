@@ -54,7 +54,14 @@ KOKORO_LANG_CODE = "a"
 KOKORO_VOICES    = ["af_heart", "af_bella", "am_adam", "am_michael"]
 
 # ── Spoof: folder deepfake eksternal ──────────────────────────────────────
-EXTRA_SPOOF_DIRS = []
+EXTRA_SPOOF_DIRS = [
+    "/Users/rey/ITB/semester_2/PPT/audio_real_world/fake",
+]
+
+# ── Bona fide: folder audio asli eksternal ────────────────────────────────
+EXTRA_BONA_FIDE_DIRS = [
+    "/Users/rey/ITB/semester_2/PPT/audio_real_world/real",
+]
 
 # ── Output: spoof ────────────────────────────────────────────────────────
 DIR_SPOOF  = f"{DATASET_ROOT}/spoof"
