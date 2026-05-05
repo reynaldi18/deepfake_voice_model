@@ -23,6 +23,12 @@ BONA_FIDE_SOURCES = [
         "tsv_files": ["validated.tsv"],
         "prefix"   : "",  # nama file sudah include "librivox_" dari download script
     },
+    # Octava Indonesian Voice Transcription — jalankan download_octava_id.py dulu sebelum mengaktifkan ini
+    {
+        "cv_root"  : f"{CV_CORPUS_ROOT}/octava-id",
+        "tsv_files": ["validated.tsv"],
+        "prefix"   : "",  # nama file sudah include "octava_" dari download script
+    },
 ]
 
 # ── Output: bona fide ────────────────────────────────────────────────────

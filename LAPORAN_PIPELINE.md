@@ -1,6 +1,6 @@
 # Laporan Pipeline: Deteksi Deepfake Audio Bahasa Indonesia
 
-**Tanggal**: 29 April 2026  
+**Tanggal**: 5 Mei 2026  
 **Notebook**: `pipeline_lengkap.ipynb`  
 **Bahasa**: Python 3.10.12 | PyTorch 2.11.0 | Device: Apple MPS  
 
@@ -28,15 +28,15 @@
 
 ## 1. Ringkasan Eksekutif
 
-Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end: mulai dari pengumpulan data, generasi audio sintetis (spoof), pelatihan tiga jenis model, hingga inferensi real-world. Dataset bersumber dari **Mozilla Common Voice v24.0** (Indonesian, 30.256 sampel), **LibriVox** (5.635 sampel), dan **rekaman real-world** (34 sampel baru), menghasilkan **35.925 sampel bona-fide**. Spoof diperkaya menjadi **111.018 sampel** dari 5 TTS engine + 14 rekaman deepfake real-world.
+Pipeline ini membangun sistem deteksi deepfake audio Bahasa Indonesia end-to-end: mulai dari pengumpulan data, generasi audio sintetis (spoof), pelatihan tiga jenis model, hingga inferensi real-world. Dataset bersumber dari **Mozilla Common Voice v24.0** (30.256 sampel), **LibriVox** (5.635 sampel), **OCTAVA-ID** (26.964 sampel baru), dan **rekaman real-world** (34 sampel), menghasilkan **62.889 sampel bona-fide**. Spoof berjumlah **111.032 sampel** dari 5 TTS engine + 28 rekaman deepfake real-world.
 
-MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pada run ini akibat val loss divergen sejak epoch 2 — detail analisis di Bagian 13.
+MoLEx dan XGBoost mempertahankan performa sangat tinggi. AASIST kembali mengalami val loss divergen meski lebih awal stabil — detail analisis di Bagian 13.
 
 | Model | Accuracy | ROC-AUC | EER | MCC | ms/sampel |
 |-------|----------|---------|-----|-----|-----------|
-| AASIST | 99.47% | 0.9995 | 0.28% | 0.9894 | 4.5883 |
-| MoLEx | **99.96%** | 0.9998 | **0.04%** | **0.9992** | 4.1388 |
-| XGBoost | 99.89% | **0.9999** | 0.08% | 0.9978 | **0.0060** |
+| AASIST | 98.80% | 0.9998 | 0.43% | 0.9762 | 4.7247 |
+| MoLEx | 99.95% | **0.9999** | 0.06% | 0.9990 | 3.4536 |
+| XGBoost | **99.96%** | **1.0000** | **0.04%** | **0.9992** | **0.0044** |
 
 ---
 
@@ -56,6 +56,7 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 |----------|------|
 | Common Voice v24.0 | `dataset/cv-corpus-24.0-2025-12-05/id` |
 | LibriVox Indonesia | `dataset/librivox-id` |
+| OCTAVA-ID | `dataset/octava-id` |
 
 ### Sumber Data Eksternal
 
@@ -113,17 +114,18 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 **Sumber data**:
 - Mozilla Common Voice v24.0 — korpus Bahasa Indonesia
 - LibriVox — rekaman audiobook publik Bahasa Indonesia (5.635 file)
-- Rekaman real-world baru — 34 file MP3/MP4 dari berbagai sumber (berita, WhatsApp, podcast)
+- OCTAVA-ID — dataset pidato Bahasa Indonesia open-source (26.964 file)
+- Rekaman real-world — 34 file MP3/MP4 dari berbagai sumber (berita, WhatsApp, podcast)
 
 **File TSV yang dibaca**: `validated.tsv`, `train.tsv`, `test.tsv`
 
 ### Proses
 1. Baca semua TSV menggunakan `csv.DictReader`
 2. Deduplikasi berdasarkan tuple `(prefix, audio_filename)`
-3. Tambahkan rekaman LibriVox (file MP3/FLAC yang sudah dikumpulkan)
+3. Tambahkan rekaman LibriVox dan OCTAVA-ID (file MP3/FLAC yang sudah dikumpulkan)
 4. Load audio dengan `librosa.load(sr=16000, mono=True)`, simpan sebagai FLAC ke `bona_fide/`
 5. Tulis metadata TSV: `[file_id, flac_filename, sentence]`
-6. **[Baru]** Proses `EXTRA_BONA_FIDE_DIRS`: konversi MP3/MP4 → FLAC, append ke metadata
+6. Proses `EXTRA_BONA_FIDE_DIRS`: konversi MP3/MP4 → FLAC, append ke metadata
 
 ### Hasil
 
@@ -133,12 +135,13 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 | train.tsv | 4.973 | 4.973 (semua duplikat dari validated) |
 | test.tsv | 3.691 | 3.691 (semua duplikat dari validated) |
 | LibriVox | 5.635 | 0 |
+| OCTAVA-ID | 26.964 | 0 |
 | Real-world (`audio_real_world/real/`) | 34 | 0 |
-| **Total unik** | **35.925** | — |
+| **Total unik** | **62.889** | — |
 
 - Output: `/Users/rey/ITB/semester_2/PPT/dataset_voice/bona_fide/`
-- Metadata: `metadata_bona_fide.tsv` (35.925 entri)
-- Catatan: LibriVox dan real-world **dikecualikan** dari generasi TTS spoof (tidak ada transkripsi)
+- Metadata: `metadata_bona_fide.tsv` (62.889 entri)
+- Catatan: LibriVox, OCTAVA-ID, dan real-world **dikecualikan** dari generasi TTS spoof (tidak ada transkripsi per-file)
 
 ---
 
@@ -171,7 +174,7 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 ### 4.5 Real-World Deepfake Eksternal
 
 - **Sumber**: `audio_real_world/fake/` — rekaman deepfake nyata (MiniMax, TTSFree, dsb.)
-- **Hasil**: ✅ 14 files → dikonversi ke FLAC, masuk label `extra:fake`
+- **Hasil**: ✅ 28 files → dikonversi ke FLAC, masuk label `extra:fake` (+14 dari run sebelumnya)
 
 ### Ringkasan Spoof
 
@@ -182,18 +185,18 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 | gTTS (3 TLD) | 21.908 |
 | Kokoro-82M (4 voices) | 23.580 |
 | MMS-VITS | 5.004 |
-| Real-world deepfake | 14 |
-| **Total** | **111.018** |
+| Real-world deepfake | 28 |
+| **Total** | **111.032** |
 
-- Metadata: `metadata_spoof.tsv` (111.018 entri unik)
+- Metadata: `metadata_spoof.tsv` (111.032 entri unik)
 
 ---
 
 ## 5. Pembagian Dataset
 
 ### Proses
-1. Load metadata bona-fide (35.925) dan spoof (111.018)
-2. **Balancing 1:1**: subsample spoof → 35.925 sampel tiap kelas
+1. Load metadata bona-fide (62.889) dan spoof (111.032)
+2. **Balancing 1:1**: subsample spoof → 62.889 sampel tiap kelas
 3. Gabungkan dan shuffle (random seed=42)
 4. Split 80/10/10
 
@@ -201,10 +204,10 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 
 | Split | Total | Bona Fide | Spoof |
 |-------|-------|-----------|-------|
-| Train | 57.480 | 28.723 | 28.757 |
-| Val | 7.185 | 3.574 | 3.611 |
-| Test | 7.185 | 3.628 | 3.557 |
-| **Total** | **71.850** | **35.925** | **35.925** |
+| Train | 100.622 | 50.264 | 50.358 |
+| Val | 12.577 | 6.291 | 6.286 |
+| Test | 12.579 | 6.334 | 6.245 |
+| **Total** | **125.778** | **62.889** | **62.889** |
 
 - Lokasi: `/Users/rey/ITB/semester_2/PPT/dataset_voice/splits/`
 
@@ -220,16 +223,17 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 
 | Epoch | Train Loss | Train Acc | Val Loss | Val Acc |
 |-------|-----------|-----------|----------|---------|
-| 1 | 0.1024 | 96.05% | 0.0231 | **99.21%** ← best |
-| 2 | 0.0152 | 99.54% | 3.2527 | 69.31% |
-| 3 | 0.0110 | 99.68% | 4.9923 | 65.72% |
-| 4 | 0.0094 | 99.76% | 5.8231 | 59.82% |
-| 5 | 0.0073 | 99.82% | 8.6670 | 60.79% |
-| 6 | 0.0056 | 99.85% | 14.2918 | 54.29% |
+| 1 | 0.0840 | 96.87% | 1.4641 | 76.50% |
+| 2 | 0.0185 | 99.52% | 0.0338 | **98.65%** ← best |
+| 3 | 0.0126 | 99.66% | 3.4743 | 73.35% |
+| 4 | 0.0088 | 99.76% | 0.0464 | 98.20% |
+| 5 | 0.0065 | 99.85% | 5.9977 | 59.76% |
+| 6 | 0.0055 | 99.87% | 8.0042 | 63.15% |
+| 7 | 0.0039 | 99.91% | 0.6539 | 91.71% |
 | *early stop* | — | — | — | — |
 
-- Val loss divergen mulai epoch 2 — best checkpoint di epoch 1
-- Early stopping pada epoch 6 (tidak ada improvement selama 5 epoch)
+- Val loss tidak stabil (spike besar di epoch 3, 5, 6) — best checkpoint di epoch 2
+- Early stopping pada epoch 7 (tidak ada improvement selama 5 epoch)
 - Checkpoint: `{DIR_AASIST}/aasist_best.pt`
 
 ### Hasil Test Set
@@ -237,14 +241,14 @@ MoLEx dan XGBoost mempertahankan performa tinggi. AASIST mengalami degradasi pad
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      0.99      1.00      3628
-       spoof       0.99      1.00      1.00      3557
-    accuracy                           0.99      7185
+    bonafide       0.98      1.00      0.99      6334
+       spoof       1.00      0.98      0.99      6245
+    accuracy                           0.99     12579
 
-ROC-AUC      : 0.9995
-EER          : 0.28%
-MCC          : 0.9894
-Waktu inf.   : 32967.1 ms total  |  4.5883 ms/sampel
+ROC-AUC      : 0.9998
+EER          : 0.43%
+MCC          : 0.9762
+Waktu inf.   : 59432.6 ms total  |  4.7247 ms/sampel
 ```
 
 ---
@@ -259,21 +263,23 @@ Waktu inf.   : 32967.1 ms total  |  4.5883 ms/sampel
 
 | Epoch | Train Loss | Train Acc | Val Loss | Val Acc |
 |-------|-----------|-----------|----------|---------|
-| 1 | 0.0531 | 98.25% | 0.0125 | 99.81% ← best |
-| 2 | 0.0129 | 99.71% | 0.0102 | 99.78% ← best |
-| 3 | 0.0058 | 99.86% | 0.0048 | 99.87% ← best |
-| 4 | 0.0048 | 99.88% | 0.0055 | 99.89% ← best |
-| 5 | 0.0034 | 99.93% | 0.0062 | 99.87% |
-| 6 | 0.0033 | 99.93% | 0.0030 | **99.96%** ← best |
-| 7 | 0.0011 | 99.97% | 0.0090 | 99.94% |
-| 8 | 0.0019 | 99.96% | 0.0114 | 99.94% |
-| 9 | 0.0011 | 99.98% | 0.0059 | 99.93% |
-| 10 | 0.0004 | 99.99% | 0.0159 | 99.60% |
-| 11 | 0.0006 | 99.99% | 0.0112 | 99.93% |
+| 1 | 0.0396 | 98.75% | 0.0133 | 99.74% ← best |
+| 2 | 0.0102 | 99.79% | 0.0114 | 99.85% ← best |
+| 3 | 0.0062 | 99.87% | 0.0151 | 99.75% |
+| 4 | 0.0035 | 99.92% | 0.0177 | 99.75% |
+| 5 | 0.0031 | 99.94% | 0.0111 | 99.87% ← best |
+| 6 | 0.0018 | 99.96% | 0.0083 | 99.91% ← best |
+| 7 | 0.0017 | 99.96% | 0.0110 | 99.87% |
+| 8 | 0.0012 | 99.97% | 0.0087 | 99.90% |
+| 9 | 0.0008 | 99.99% | 0.0082 | **99.93%** ← best |
+| 10 | 0.0008 | 99.98% | 0.0108 | 99.88% |
+| 11 | 0.0005 | 99.99% | 0.0181 | 99.86% |
+| 12 | 0.0001 | 100.00% | 0.0135 | 99.90% |
+| 13 | 0.0001 | 100.00% | 0.0250 | 99.81% |
 | *early stop* | — | — | — | — |
 
-- Early stopping pada epoch 11 (tidak ada improvement selama 5 epoch setelah epoch 6)
-- Best checkpoint: epoch 6 (val loss 0.0030, val acc 99.96%)
+- Early stopping pada epoch 13 (tidak ada improvement selama 4 epoch setelah epoch 9)
+- Best checkpoint: epoch 9 (val loss 0.0082, val acc 99.93%)
 - Checkpoint: `{DIR_MOLEX}/molex_best.pt`
 
 ### Hasil Test Set
@@ -281,14 +287,14 @@ Waktu inf.   : 32967.1 ms total  |  4.5883 ms/sampel
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      1.00      1.00      3628
-       spoof       1.00      1.00      1.00      3557
-    accuracy                           1.00      7185
+    bonafide       1.00      1.00      1.00      6334
+       spoof       1.00      1.00      1.00      6245
+    accuracy                           1.00     12579
 
-ROC-AUC      : 0.9998
-EER          : 0.04%
-MCC          : 0.9992
-Waktu inf.   : 29737.0 ms total  |  4.1388 ms/sampel
+ROC-AUC      : 0.9999
+EER          : 0.06%
+MCC          : 0.9990
+Waktu inf.   : 43443.1 ms total  |  3.4536 ms/sampel
 ```
 
 ---
@@ -297,16 +303,16 @@ Waktu inf.   : 29737.0 ms total  |  4.1388 ms/sampel
 
 | Metrik | AASIST | MoLEx |
 |--------|--------|-------|
-| Accuracy | 99.47% | **99.96%** |
-| ROC-AUC | 0.9995 | **0.9998** |
-| EER | 0.28% | **0.04%** |
-| MCC | 0.9894 | **0.9992** |
+| Accuracy | 98.80% | **99.95%** |
+| ROC-AUC | 0.9998 | **0.9999** |
+| EER | 0.43% | **0.06%** |
+| MCC | 0.9762 | **0.9990** |
 | Parameters | 2.508.174 | **179.491** |
-| ms/sampel | 4.5883 | **4.1388** |
+| ms/sampel | 4.7247 | **3.4536** |
 | Input type | Raw waveform | LFCC features |
-| Best epoch | 1 (divergen setelah) | 6 (stabil) |
+| Best epoch | 2 (tidak stabil) | 9 (stabil) |
 
-MoLEx unggul di semua metrik. AASIST mengalami val loss divergen setelah epoch 1 — perlu investigasi lebih lanjut (lihat Bagian 13).
+MoLEx unggul di semua metrik. AASIST masih menunjukkan ketidakstabilan val loss meski ada perbaikan dibanding run sebelumnya — perlu investigasi lebih lanjut (lihat Bagian 13).
 
 ---
 
@@ -351,12 +357,11 @@ MoLEx unggul di semua metrik. AASIST mengalami val loss divergen setelah epoch 1
 
 | Label | Jumlah | Persentase |
 |-------|--------|-----------|
-| BONAFIDE | 19 | 76.0% |
-| SPOOF | 3 | 12.0% |
-| TIDAK YAKIN | 3 | 12.0% |
+| BONAFIDE | 18 | 72.0% |
+| SPOOF | 5 | 20.0% |
+| TIDAK YAKIN | 2 | 8.0% |
 
 - Hasil disimpan: `/Users/rey/ITB/semester_2/PPT/models_voice/realworld_test/batch_results.csv`
-- Catatan: inference ini menggunakan model dari run sebelumnya — perlu dijalankan ulang setelah re-training
 
 ---
 
@@ -375,9 +380,9 @@ MoLEx unggul di semua metrik. AASIST mengalami val loss divergen setelah epoch 1
 
 | Split | Sampel | Dimensi |
 |-------|--------|---------|
-| Train | 57.480 | (57.480, 26) |
-| Val | 7.185 | (7.185, 26) |
-| Test | 7.185 | (7.185, 26) |
+| Train | 100.622 | (100.622, 26) |
+| Val | 12.577 | (12.577, 26) |
+| Test | 12.579 | (12.579, 26) |
 
 - Standardisasi: `StandardScaler` fit di train, transform val/test
 - Disimpan: `features_{split}.npz`, `scaler.pkl`
@@ -386,63 +391,63 @@ MoLEx unggul di semua metrik. AASIST mengalami val loss divergen setelah epoch 1
 
 | Rank | Fitur | Delta |
 |------|-------|-------|
-| 1 | MFCC_7 | 1.0412 |
-| 2 | ZCR | 0.9186 |
-| 3 | Centroid | 0.8418 |
-| 4 | Rolloff | 0.7996 |
-| 5 | Bandwidth | 0.7804 |
-| 6 | RMS | 0.7691 |
-| 7 | MFCC_6 | 0.7446 |
-| 8 | MFCC_5 | 0.7262 |
-| 9 | MFCC_2 | 0.6625 |
-| 10 | MFCC_15 | 0.6307 |
+| 1 | MFCC_2 | 0.9501 |
+| 2 | MFCC_7 | 0.8231 |
+| 3 | MFCC_16 | 0.7646 |
+| 4 | MFCC_1 | 0.6117 |
+| 5 | Bandwidth | 0.5945 |
+| 6 | MFCC_10 | 0.5458 |
+| 7 | MFCC_15 | 0.5211 |
+| 8 | MFCC_14 | 0.4821 |
+| 9 | Chroma | 0.4395 |
+| 10 | MFCC_6 | 0.4337 |
 
 ---
 
 ## 11. Training & Evaluasi XGBoost
 
 ### Setup
-- Training pada gabungan train+val (64.665 sampel) setelah mencari rounds optimal
+- Training pada gabungan train+val (113.199 sampel) setelah mencari rounds optimal
 - Pencarian rounds: early stopping (max=500, patience=50)
-- **Optimal rounds**: 499 — maks tercapai, model masih bisa diuntungkan dengan rounds lebih banyak
+- **Optimal rounds**: 497 — hampir mencapai maks, model bisa diuntungkan dengan rounds lebih banyak
 
 ### Hasil 10-Fold Cross-Validation
 
 | Metrik | Mean | Std |
 |--------|------|-----|
-| Accuracy | 99.89% | — |
-| ROC-AUC | 0.9999 | — |
-| EER | 0.08% | — |
+| Accuracy | 99.91% | ±0.02% |
+| ROC-AUC | 1.0000 | ±0.0001 |
+| EER | 0.08% | ±0.03% |
 
 ### Hasil Test Set
 
 ```
               precision    recall  f1-score   support
 
-    bonafide       1.00      1.00      1.00      3628
-       spoof       1.00      1.00      1.00      3557
-    accuracy                           1.00      7185
+    bonafide       1.00      1.00      1.00      6334
+       spoof       1.00      1.00      1.00      6245
+    accuracy                           1.00     12579
 
-ROC-AUC      : 0.9999
-EER          : 0.08%
-MCC          : 0.9978
-Waktu inf.   : 43.3 ms total  |  0.0060 ms/sampel
+ROC-AUC      : 1.0000
+EER          : 0.04%
+MCC          : 0.9992
+Waktu inf.   : 55.9 ms total  |  0.0044 ms/sampel
 ```
 
 ### Top 10 Fitur Penting (berdasarkan Gain)
 
 | Rank | Fitur | Gain |
 |------|-------|------|
-| 1 | MFCC_7 | 0.2520 |
-| 2 | RMS | 0.0984 |
-| 3 | MFCC_16 | 0.0733 |
-| 4 | MFCC_5 | 0.0724 |
-| 5 | MFCC_10 | 0.0692 |
-| 6 | Rolloff | 0.0566 |
-| 7 | MFCC_13 | 0.0461 |
-| 8 | MFCC_2 | 0.0400 |
-| 9 | MFCC_17 | 0.0372 |
-| 10 | MFCC_15 | 0.0347 |
+| 1 | MFCC_1 | 0.1405 |
+| 2 | Rolloff | 0.1029 |
+| 3 | MFCC_7 | 0.0927 |
+| 4 | MFCC_13 | 0.0766 |
+| 5 | MFCC_2 | 0.0726 |
+| 6 | MFCC_16 | 0.0648 |
+| 7 | MFCC_6 | 0.0604 |
+| 8 | Bandwidth | 0.0467 |
+| 9 | MFCC_15 | 0.0462 |
+| 10 | MFCC_10 | 0.0421 |
 
 - Model disimpan: `xgboost_final.json`, `xgboost_final.pkl`
 
@@ -475,11 +480,19 @@ Sel **9.6b** (ditambahkan 29 April 2026) menambahkan kemampuan inferensi batch f
 | Bar chart | `{DIR_XGB}/batch_results.png` |
 | CSV hasil | `{DIR_XGB}/batch_results.csv` |
 
+#### Hasil Batch Inference (25 file real-world)
+
+| Label | Jumlah | Persentase |
+|-------|--------|-----------|
+| BONAFIDE | 20 | 80.0% |
+| SPOOF | 5 | 20.0% |
+| TIDAK YAKIN | 0 | 0.0% |
+
 #### Keunggulan Dibanding Ensemble AASIST+MoLEx
 
 | Aspek | AASIST + MoLEx (Bagian 9) | XGBoost (sel 9.6b) |
 |-------|--------------------------|---------------------|
-| Kecepatan | ~4–5 ms/file | **~0.006 ms/file** |
+| Kecepatan | ~3–5 ms/file | **~0.004 ms/file** |
 | Kebutuhan GPU | Ya (MPS/CUDA) | Tidak (CPU only) |
 | Self-contained | Ya | Ya |
 | Output | Ensemble label + bar chart | Label + bar chart |
@@ -491,39 +504,37 @@ Sel **9.6b** (ditambahkan 29 April 2026) menambahkan kemampuan inferensi batch f
 
 | Model | Accuracy | ROC-AUC | EER | MCC | Inf. (ms/sampel) | Jenis Input |
 |-------|----------|---------|-----|-----|------------------|-------------|
-| AASIST | 99.47% | 0.9995 | 0.28% | 0.9894 | 4.5883 | Raw waveform |
-| MoLEx | **99.96%** | 0.9998 | **0.04%** | **0.9992** | 4.1388 | LFCC features |
-| XGBoost | 99.89% | **0.9999** | 0.08% | 0.9978 | **0.0060** | MFCC + akustik |
+| AASIST | 98.80% | 0.9998 | 0.43% | 0.9762 | 4.7247 | Raw waveform |
+| MoLEx | 99.95% | 0.9999 | 0.06% | 0.9990 | 3.4536 | LFCC features |
+| XGBoost | **99.96%** | **1.0000** | **0.04%** | **0.9992** | **0.0044** | MFCC + akustik |
 
 ---
 
 ## 13. Catatan & Temuan Penting
 
-### Penambahan Data Real-World
+### Penambahan Data — OCTAVA-ID
 
-1. **34 rekaman bona-fide real-world ditambahkan**: Dari berbagai sumber (berita TV, podcast, WhatsApp, YouTube) — semua berhasil dikonversi ke FLAC 16 kHz dan dimasukkan ke metadata bona-fide.
+1. **OCTAVA-ID ditambahkan sebagai sumber bona-fide baru**: 26.964 file audio Bahasa Indonesia dari dataset publik, menjadikan total bona-fide melonjak dari 35.925 → 62.889. Ini adalah penambahan data terbesar sejauh ini dan melipatduakan ukuran dataset.
 
-2. **14 rekaman deepfake real-world ditambahkan**: Dari MiniMax, TTSFree, dan sumber lain — masuk ke dataset spoof dengan label `extra:fake`.
+2. **28 rekaman deepfake real-world** (naik dari 14): 14 file baru dari sumber tambahan masuk ke label `extra:fake`.
 
-3. **Proporsi real-world masih kecil**: 34 dari 35.925 bona-fide (0.09%) dan 14 dari 111.018 spoof (0.01%). Dampak langsung ke metrik model minimal, tapi secara kualitatif memperluas distribusi data.
+3. **Proporsi real-world masih kecil**: 34 dari 62.889 bona-fide (0.05%) dan 28 dari 111.032 spoof (0.03%). Namun OCTAVA-ID sebagai sumber baru memperluas keragaman akustik secara signifikan.
 
 ### Tentang Performa AASIST
 
-4. **AASIST mengalami degradasi signifikan**: Dibandingkan run sebelumnya (accuracy 99.79%, EER 0.00%), kini accuracy 99.47% dan EER 0.28%. Penyebab utama: val loss divergen ekstrem sejak epoch 2 (0.023 → 3.25 → 4.99 → 5.82 → 8.67 → 14.29). Best checkpoint hanya dari epoch 1 dengan val acc 99.21%.
+4. **AASIST masih tidak stabil meski ada perbaikan**: accuracy turun ke 98.80% (dari 99.47%) dan EER naik ke 0.43%. Val loss menunjukkan pola yang lebih kasar: sempat membaik di epoch 2 (0.034) namun meledak lagi di epoch 3, 5, 6 sebelum stabil. Best checkpoint di epoch 2 (val acc 98.65%).
 
-5. **Dataset yang lebih besar memperparah instabilitas AASIST**: Peningkatan spoof dari 75.512 → 111.018 mengubah distribusi batch secara signifikan. SincConv pada AASIST sensitif terhadap perubahan distribusi ini — menyebabkan loss meledak setelah epoch pertama.
+5. **Dataset dua kali lebih besar memperparah instabilitas AASIST**: Dataset naik dari 71.850 → 125.778 sampel. SincConv pada AASIST tetap sensitif terhadap perubahan distribusi batch di skala besar.
 
-6. **MoLEx tidak terpengaruh**: Training tetap stabil, val loss turun monoton hingga epoch 6, kemudian sedikit fluktuasi. Arsitektur berbasis LFCC lebih robust terhadap perubahan skala dataset.
+6. **MoLEx tetap stabil dan konvergen**: Training berjalan hingga epoch 13 dengan best checkpoint di epoch 9 (val acc 99.93%). Arsitektur berbasis LFCC terbukti lebih robust terhadap penambahan data besar.
 
 ### Tentang XGBoost
 
-7. **Best rounds mencapai batas maksimum (499)**: Berbeda dari run sebelumnya (313 rounds), kini rounds optimal belum ditemukan dalam batas 500. Perlu menaikkan `XGB_ROUNDS_MAX` ke 1.000 atau lebih pada run berikutnya.
+7. **XGBoost justru meningkat dengan data lebih besar**: Accuracy naik ke 99.96%, EER turun ke 0.04%, MCC naik ke 0.9992. Rounds optimal 497 (batas 500 nyaris tercapai) — perlu `XGB_ROUNDS_MAX` lebih besar.
 
-8. **Waktu inferensi XGBoost sedikit lebih lambat**: 0.006 ms/sampel vs 0.003 ms/sampel sebelumnya — wajar karena lebih banyak data training membuat model lebih dalam.
+8. **Inferensi XGBoost lebih cepat**: 0.0044 ms/sampel (turun dari 0.0060) — kemungkinan karena lebih banyak data membuat tree lebih efisien secara depth-wise.
 
-### Tentang Pipeline
-
-9. **Cell 30 diperbaiki (resume-friendly)**: Sebelumnya Cell 30 selalu menimpa `metadata_spoof.tsv` dari awal. Jika dijalankan tanpa TTS generator cells, metadata lama hilang. Kini Cell 30 membaca metadata lama dan merge, sehingga data tidak hilang meski dijalankan independen.
+9. **Feature importance bergeser**: MFCC_1 dan Rolloff menjadi fitur teratas (gain 0.14 dan 0.10), menggeser MFCC_7 yang sebelumnya dominan. Ini mencerminkan distribusi akustik baru dari OCTAVA-ID.
 
 ---
 
@@ -539,10 +550,7 @@ Val loss divergen setelah epoch 1 adalah masalah kritis. Rekomendasi:
 - Coba **fine-tune dari checkpoint resmi** AASIST daripada training from scratch
 
 #### 2. Naikkan `XGB_ROUNDS_MAX`
-Optimal rounds belum ditemukan di 499. Set `XGB_ROUNDS_MAX = 1500` dan jalankan ulang pencarian rounds.
-
-#### 3. Jalankan Ulang Real-World Inference
-Batch inference saat ini masih dari model lama. Jalankan ulang Bagian 9 setelah re-training untuk mendapatkan prediksi yang konsisten dengan model terbaru.
+Optimal rounds hampir mencapai batas 500 (497 rounds). Set `XGB_ROUNDS_MAX = 1500` dan jalankan ulang pencarian rounds untuk potensi peningkatan lebih lanjut.
 
 ### Prioritas Sedang
 
@@ -578,18 +586,19 @@ XGBoost (0.006 ms/sampel) adalah kandidat terbaik:
 
 | Metrik | Nilai |
 |--------|-------|
-| Total bona-fide (raw) | 35.925 |
+| Total bona-fide (raw) | 62.889 |
 | — Common Voice | 30.256 |
 | — LibriVox | 5.635 |
+| — OCTAVA-ID | 26.964 |
 | — Real-world (audio_real_world/real) | 34 |
-| Total spoof (raw) | 111.018 |
+| Total spoof (raw) | 111.032 |
 | — Edge-TTS (GadisNeural + ArdiNeural) | 60.512 |
 | — gTTS (3 TLD) | 21.908 |
 | — Kokoro-82M (4 voices) | 23.580 |
 | — MMS-VITS | 5.004 |
-| — Real-world deepfake (audio_real_world/fake) | 14 |
-| Dataset setelah balancing | 71.850 |
-| Train / Val / Test | 57.480 / 7.185 / 7.185 |
+| — Real-world deepfake (audio_real_world/fake) | 28 |
+| Dataset setelah balancing | 125.778 |
+| Train / Val / Test | 100.622 / 12.577 / 12.579 |
 | Sample rate | 16.000 Hz |
 | Durasi maksimum | 4 detik |
 | Format audio | FLAC (PCM_16) |
@@ -598,14 +607,14 @@ XGBoost (0.006 ms/sampel) adalah kandidat terbaik:
 
 ```
 dataset_voice/
-├── bona_fide/               ← 35.925 file FLAC
-├── spoof/                   ← 111.018 file FLAC
+├── bona_fide/               ← 62.889 file FLAC
+├── spoof/                   ← 111.032 file FLAC
 ├── metadata_bona_fide.tsv
 ├── metadata_spoof.tsv
 ├── splits/
-│   ├── train.tsv            ← 57.480 sampel
-│   ├── val.tsv              ← 7.185 sampel
-│   └── test.tsv             ← 7.185 sampel
+│   ├── train.tsv            ← 100.622 sampel
+│   ├── val.tsv              ← 12.577 sampel
+│   └── test.tsv             ← 12.579 sampel
 └── features/
     ├── features_train.npz
     ├── features_val.npz
@@ -614,9 +623,9 @@ dataset_voice/
 
 models_voice/
 ├── aasist/
-│   └── aasist_best.pt       ← best epoch 1
+│   └── aasist_best.pt       ← best epoch 2
 ├── molex/
-│   └── molex_best.pt        ← best epoch 6
+│   └── molex_best.pt        ← best epoch 9
 ├── xgboost/
 │   ├── xgboost_final.json
 │   ├── xgboost_final.pkl
